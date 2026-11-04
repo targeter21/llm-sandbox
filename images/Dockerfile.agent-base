@@ -1,0 +1,37 @@
+FROM docker.io/library/fedora:latest
+
+ENV PRESELECTED_PM=npm
+
+# Install JVM tools, build utilities, and basic runtimes
+RUN dnf install -y -q \
+    java-latest-openjdk-devel \
+    maven \
+    nodejs \
+    npm \
+    git \
+    curl \
+    tar \
+    gh \
+    which \
+    podman \
+    gzip && \
+    dnf clean all
+
+# JVM environment configuration
+ENV JAVA_HOME=/usr/lib/jvm/java-latest-openjdk
+ENV PATH=/usr/local/bin:$JAVA_HOME/bin:$PATH
+
+# Install Ripwire into /usr/local/bin via archive extraction (x64 or arm64 build)
+RUN case "$(uname -m)" in \
+        x86_64)          rw_arch=x64 ;; \
+        aarch64|arm64)   rw_arch=arm64 ;; \
+        *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac && \
+    mkdir -p /tmp/ripwire-dl && \
+    curl -fsSL "https://github.com/redhat-et/ripwire/releases/download/v0.6.9/ripwire-0.6.9-linux-${rw_arch}.tar.gz" | \
+    tar -xz -C /tmp/ripwire-dl && \
+    find /tmp/ripwire-dl -type f -name "ripwire" -exec mv {} /usr/local/bin/ripwire \; && \
+    chmod +x /usr/local/bin/ripwire && \
+    rm -rf /tmp/ripwire-dl
+
+WORKDIR /workspace

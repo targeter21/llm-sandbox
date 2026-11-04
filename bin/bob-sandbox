@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+source "$SCRIPT_DIR/common-sandbox.sh"
+
+handle_maintenance_flags "$1"
+
+# Bob-specific paths
+BOB_SETTINGS_DIR="$HOME/.bob/settings"
+BOB_CONFIG_DIR="$HOME/.bob"
+
+# Initialize worktree environment with prefix 'bob'
+init_worktree_environment "bob"
+
+# Seed the session home (/root) with copies of the host config. The agent works
+# on the copies; the host's ~/.bob is never mounted.
+seed_from_host "$BOB_CONFIG_DIR" "$SANDBOX_HOME/.bob" rules skills
+seed_from_host "$BOB_SETTINGS_DIR" "$SANDBOX_HOME/.bob/settings" settings.json
+# The API key/token file is synced back to the host on exit, so a login (or token
+# refresh) made in the sandbox persists between runs. It may not exist yet.
+seed_auth_from_host "$BOB_SETTINGS_DIR" "$SANDBOX_HOME/.bob/settings" auth-secrets.json
+if [ ! -f "$BOB_SETTINGS_DIR/auth-secrets.json" ]; then
+    echo "ℹ️ No $BOB_SETTINGS_DIR/auth-secrets.json yet; log in inside the sandbox and it will be saved when you exit."
+fi
+
+# Define tool-specific mounts and environment variables
+TOOL_PODMAN_ARGS=(
+    -e CLI_TOOL_NAME="bob"
+)
+
+# Run the container
+run_agent_container "bob-dev-sandbox:latest" "${TOOL_PODMAN_ARGS[@]}" -- bob "$@"

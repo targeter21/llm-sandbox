@@ -1,0 +1,12 @@
+FROM agent-base-sandbox:latest
+
+# Install the official Gemini CLI globally via npm
+RUN npm install -g @google/gemini-cli
+
+# Verify the executable is in $PATH (/usr/local/bin or /usr/bin depending on npm prefix)
+RUN command -v gemini
+
+WORKDIR /workspace
+
+# Launch straight into Gemini
+CMD ["gemini"]

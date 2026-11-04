@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# claude-setup - configure Claude Code for Vertex AI using gcloud Application
+# Default Credentials (ADC). Meant to be *sourced* by claude-sandbox inside the
+# container, so the exports below reach Claude:
+#
+#   source claude-setup <vertex_project_id>
+#
+# It exports the Vertex environment variables, makes sure there is a valid ADC
+# login (prompting for one if not) and sets the ADC quota project. The login is
+# stored in ~/.config/gcloud, which claude-sandbox persists between runs.
+# Returns non-zero if the login or quota project could not be set up.
+
+claude_vertex_setup() {
+  local project_id="${1:-}"
+  if [ -z "$project_id" ]; then
+    echo "[x] Vertex project ID is required: source claude-setup <vertex_project_id>" >&2
+    return 1
+  fi
+
+  export CLAUDE_CODE_USE_VERTEX=1
+  export CLOUD_ML_REGION=global
+  export ANTHROPIC_VERTEX_PROJECT_ID="$project_id"
+
+  if ! command -v gcloud >/dev/null 2>&1; then
+    echo "[x] gcloud was not found in this container." >&2
+    return 1
+  fi
+
+  local adc_file="${CLOUDSDK_CONFIG:-$HOME/.config/gcloud}/application_default_credentials.json"
+  if [ -f "$adc_file" ] && gcloud auth application-default print-access-token >/dev/null 2>&1; then
+    echo "[+] Using cached ADC credentials from $adc_file"
+  else
+    echo "[i] No valid ADC credentials found. Starting the ADC login flow."
+    # There is no browser in the container: gcloud prints a URL to open on the host.
+    local login_args=(--no-launch-browser)
+    if gcloud auth application-default login --help 2>/dev/null | grep -q -- '--disable-quota-project'; then
+      login_args+=(--disable-quota-project)
+    fi
+    gcloud auth application-default login "${login_args[@]}"
+  fi
+
+  local output
+  if ! output="$(gcloud auth application-default set-quota-project "$project_id" 2>&1)"; then
+    echo "[x] Could not set the ADC quota project to $project_id:" >&2
+    echo "$output" >&2
+    return 1
+  fi
+  echo "[+] Claude Code is configured for Vertex AI project $project_id"
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  echo "claude-setup must be sourced: source claude-setup <vertex_project_id>" >&2
+  exit 1
+fi
+
+claude_vertex_setup "$@"
+claude_vertex_setup_status=$?
+unset -f claude_vertex_setup
+return "$claude_vertex_setup_status"

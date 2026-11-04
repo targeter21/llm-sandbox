@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+source "$SCRIPT_DIR/common-sandbox.sh"
+
+handle_maintenance_flags "$1"
+
+# --- Claude-Specific Paths ---
+SHARED_GCLOUD_DIR="$BASE_SANDBOX_DIR/shared_gcloud"
+CLAUDE_CONFIG_DIR="$HOME/.claude"
+CLAUDE_RULES_DIR="$CLAUDE_CONFIG_DIR/rules"
+
+mkdir -p "$SHARED_GCLOUD_DIR"
+
+# Initialize worktree environment with prefix 'claude'
+init_worktree_environment "claude"
+
+# Seed the session home (/root) with copies of the host config. The agent works
+# on the copies; the host's ~/.claude is never mounted.
+seed_from_host "$CLAUDE_CONFIG_DIR" "$SANDBOX_HOME/.claude" settings.json skills CLAUDE.md
+seed_from_host "$HOME" "$SANDBOX_HOME" .claude.json
+
+# Rules (if any) are compiled into the session's CLAUDE.md, replacing the copied one.
+compile_rules "$CLAUDE_RULES_DIR" "$SANDBOX_HOME/.claude/CLAUDE.md"
+
+# --- Build Tool-Specific Podman Options ---
+# Auth is Vertex AI via gcloud ADC: the shared gcloud cache below persists the
+# login between runs, so no Claude credential file is needed from the host.
+TOOL_PODMAN_ARGS=(
+    -e IS_SANDBOX=1
+    -e CLI_TOOL_NAME="claude"
+    -v "$SHARED_GCLOUD_DIR":/root/.config/gcloud:z
+    -w /workspace
+)
+
+# Mount the installed claude-setup read-only. Only the copy shipped with
+# llm-sandbox is used, never one found in the project being worked on.
+CLAUDE_SETUP_PATH="$(cd "$SCRIPT_DIR/../share" && pwd)/claude-setup"
+if [ ! -f "$CLAUDE_SETUP_PATH" ]; then
+    echo "ERROR: $CLAUDE_SETUP_PATH not found; reinstall llm-sandbox." >&2
+    exit 1
+fi
+TOOL_PODMAN_ARGS+=(-v "$CLAUDE_SETUP_PATH":/usr/local/bin/claude-setup:ro,z)
+
+# Vertex project used by claude-setup (optional). Set CLAUDE_VERTEX_PROJECT_ID to enable.
+if [ -n "$CLAUDE_VERTEX_PROJECT_ID" ]; then
+    TOOL_PODMAN_ARGS+=(-e CLAUDE_VERTEX_PROJECT_ID="$CLAUDE_VERTEX_PROJECT_ID")
+fi
+
+echo "☁️ Shared gcloud auth cache: $SHARED_GCLOUD_DIR -> /root/.config/gcloud"
+echo "⚙️ Session home with copied config: $SANDBOX_HOME -> /root"
+
+# Run container via common-sandbox.sh
+# Everything after '--' is executed as the container command inside the sandbox
+run_agent_container "claude-dev-sandbox:latest" \
+    "${TOOL_PODMAN_ARGS[@]}" \
+    -- bash -c '
+        if [ -n "$CLAUDE_VERTEX_PROJECT_ID" ]; then
+            echo "⚙️ Running Vertex AI setup..."
+            source /usr/local/bin/claude-setup "$CLAUDE_VERTEX_PROJECT_ID" || exit 1
+        fi
+        exec claude --dangerously-skip-permissions "$@"
+    ' -- "$@"

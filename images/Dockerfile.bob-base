@@ -1,0 +1,5 @@
+FROM agent-base-sandbox:latest
+
+RUN curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash
+
+CMD ["bob"]

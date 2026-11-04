@@ -1,0 +1,14 @@
+[Unit]
+Description=LLM sandbox startup maintenance and image update
+After=default.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=@JUST@ --justfile @INSTALL_DIR@/justfile startup
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
