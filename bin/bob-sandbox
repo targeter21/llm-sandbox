@@ -10,9 +10,17 @@ handle_maintenance_flags "$1"
 # launchers (the container is the sandbox). --auto-approve is ignored in an
 # untrusted folder and every session worktree is new, so also pass --trust (the
 # trust record only lives in the throwaway session home).
+#
+# bob rejects bare positional arguments, and `-p`/`run` are headless (they need
+# BOB_API_KEY, not the saved login). So words that aren't a flag or a bob
+# subcommand are taken as an initial prompt: bob-prompt starts `bob chat` on a
+# pty and types the prompt into it once the UI is ready.
+INITIAL_PROMPT=""
 case "${1:-}" in
     "")   set -- chat --auto-approve --trust ;;
     chat) shift; set -- chat --auto-approve --trust "$@" ;;
+    -*|run|mcp|acp) ;;
+    *)    INITIAL_PROMPT="$*"; set -- chat --auto-approve --trust ;;
 esac
 
 # Bob-specific paths
@@ -38,5 +46,21 @@ TOOL_PODMAN_ARGS=(
     -e CLI_TOOL_NAME="bob"
 )
 
+BOB_CMD=(bob "$@")
+if [ -n "$INITIAL_PROMPT" ]; then
+    # Mount the installed bob-prompt read-only (only the copy shipped with
+    # llm-sandbox is used, never one found in the project being worked on).
+    BOB_PROMPT_PATH="$(cd "$SCRIPT_DIR/../share" && pwd)/bob-prompt"
+    if [ ! -f "$BOB_PROMPT_PATH" ]; then
+        echo "ERROR: $BOB_PROMPT_PATH not found; reinstall llm-sandbox." >&2
+        exit 1
+    fi
+    TOOL_PODMAN_ARGS+=(
+        -v "$BOB_PROMPT_PATH":/usr/local/bin/bob-prompt:ro,z
+        -e BOB_INITIAL_PROMPT="$INITIAL_PROMPT"
+    )
+    BOB_CMD=(bob-prompt bob "$@")
+fi
+
 # Run the container
-run_agent_container "bob-dev-sandbox:latest" "${TOOL_PODMAN_ARGS[@]}" -- bob "$@"
+run_agent_container "bob-dev-sandbox:latest" "${TOOL_PODMAN_ARGS[@]}" -- "${BOB_CMD[@]}"

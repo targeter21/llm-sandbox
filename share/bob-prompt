@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""bob-prompt - run an interactive program and type an initial prompt into it.
+
+Usage: BOB_INITIAL_PROMPT="text" bob-prompt COMMAND [ARGS...]
+
+`bob chat` has no option for an initial message, and piping stdin makes `bob`
+switch to headless mode (which needs BOB_API_KEY). So this starts COMMAND on a
+pty, waits until its output has been quiet for a moment (the UI is drawn and
+waiting for input), types BOB_INITIAL_PROMPT followed by Enter, then hands the
+terminal over to the user as normal.
+
+Environment:
+  BOB_INITIAL_PROMPT  text to type (if empty or unset, COMMAND is just exec'd)
+  BOB_PROMPT_QUIET    seconds of output silence that count as "ready" (default 1.5)
+  BOB_PROMPT_TIMEOUT  give up waiting and type anyway after this many seconds
+                      from launch (default 20)
+"""
+import fcntl
+import os
+import pty
+import select
+import signal
+import struct
+import sys
+import termios
+import time
+import tty
+
+QUIET = float(os.environ.get("BOB_PROMPT_QUIET", "1.5"))
+TIMEOUT = float(os.environ.get("BOB_PROMPT_TIMEOUT", "20"))
+SUBMIT_DELAY = 0.3  # between typing the text and pressing Enter
+
+
+def copy_winsize(src_fd, dst_fd):
+    try:
+        size = fcntl.ioctl(src_fd, termios.TIOCGWINSZ, b"\0" * 8)
+        fcntl.ioctl(dst_fd, termios.TIOCSWINSZ, size)
+    except OSError:
+        pass
+
+
+def main():
+    cmd = sys.argv[1:]
+    if not cmd:
+        print(__doc__, file=sys.stderr)
+        return 2
+
+    prompt = os.environ.pop("BOB_INITIAL_PROMPT", "")
+    if not prompt:
+        os.execvp(cmd[0], cmd)
+
+    pid, master = pty.fork()
+    if pid == 0:
+        os.execvp(cmd[0], cmd)
+
+    stdin_fd, stdout_fd = sys.stdin.fileno(), sys.stdout.fileno()
+    interactive = os.isatty(stdin_fd)
+    saved_attrs = None
+    if interactive:
+        saved_attrs = termios.tcgetattr(stdin_fd)
+        copy_winsize(stdin_fd, master)
+        signal.signal(signal.SIGWINCH, lambda *_: copy_winsize(stdin_fd, master))
+        tty.setraw(stdin_fd)
+
+    start = last_output = time.monotonic()
+    got_output = False
+    typed_at = None  # time the text was typed; Enter follows after SUBMIT_DELAY
+    submitted = False
+    watch_stdin = True
+
+    try:
+        while True:
+            now = time.monotonic()
+            if not typed_at:
+                ready = got_output and now - last_output >= QUIET
+                if ready or now - start >= TIMEOUT:
+                    os.write(master, prompt.replace("\n", " ").encode())
+                    typed_at = now
+            elif not submitted and now - typed_at >= SUBMIT_DELAY:
+                os.write(master, b"\r")
+                submitted = True
+
+            fds = [master] + ([stdin_fd] if watch_stdin else [])
+            readable, _, _ = select.select(fds, [], [], 0.1)
+
+            if master in readable:
+                try:
+                    data = os.read(master, 65536)
+                except OSError:  # EIO: child closed the pty
+                    break
+                if not data:
+                    break
+                os.write(stdout_fd, data)
+                got_output = True
+                last_output = time.monotonic()
+
+            if watch_stdin and stdin_fd in readable:
+                data = os.read(stdin_fd, 65536)
+                if data:
+                    os.write(master, data)
+                else:  # stdin closed (not a terminal); keep running the child
+                    watch_stdin = False
+    finally:
+        if saved_attrs is not None:
+            termios.tcsetattr(stdin_fd, termios.TCSADRAIN, saved_attrs)
+
+    _, status = os.waitpid(pid, 0)
+    return os.waitstatus_to_exitcode(status)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
