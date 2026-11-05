@@ -8,6 +8,13 @@ set -e
 export BASE_SANDBOX_DIR="${BASE_SANDBOX_DIR:-$HOME/.local/share/llm_sandbox_homes}"
 export SHARED_M2_DIR="$BASE_SANDBOX_DIR/shared_m2/repository"
 export WORKTREES_BASE_DIR="$BASE_SANDBOX_DIR/worktrees"
+# Logseq run logs written by logseq-tracker. Kept outside BASE_SANDBOX_DIR so
+# --clean / --prune never delete them. Each session writes into its own
+# subdirectory (see init_worktree_environment); when the session ends the logs
+# are appended to the Logseq graph at LOGSEQ_GRAPH_DIR (skipped if it doesn't exist).
+export LOGSEQ_LOG_DIR="${LOGSEQ_LOG_DIR:-$HOME/.local/share/llm-sandbox-logs}"
+export LOGSEQ_GRAPH_DIR="${LOGSEQ_GRAPH_DIR:-$HOME/Documents/Logseq}"
+_COMMON_SANDBOX_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 # --- 2. Maintenance Flags ---
 handle_maintenance_flags() {
@@ -148,6 +155,55 @@ _sync_auth_back() {
     return 0
 }
 
+# --- 2e. Logseq Log Sync ---
+# _sync_logseq_logs
+# Appends every run log this session's logseq-tracker wrote ($SESSION_LOG_DIR/run_*.md)
+# to the journal page of the day the run started, <graph>/journals/YYYY_MM_DD.md
+# (created if missing). A log is identified by its "id::" property: if that id is
+# already in the journal the log was synced before and is left alone, so running
+# this twice never duplicates anything. Called from the exit trap, after the
+# container has ended. The raw logs stay in $SESSION_LOG_DIR as an archive.
+_sync_logseq_logs() {
+    [ -n "$SESSION_LOG_DIR" ] && [ -d "$SESSION_LOG_DIR" ] || return 0
+    local logs=() log
+    for log in "$SESSION_LOG_DIR"/run_*.md; do
+        [ -f "$log" ] && logs+=("$log")
+    done
+    if [ "${#logs[@]}" -eq 0 ]; then
+        rmdir "$SESSION_LOG_DIR" 2>/dev/null || true
+        return 0
+    fi
+
+    if [ ! -d "$LOGSEQ_GRAPH_DIR" ]; then
+        echo "⚠️ Logseq graph $LOGSEQ_GRAPH_DIR not found (set LOGSEQ_GRAPH_DIR); logs kept in $SESSION_LOG_DIR."
+        return 0
+    fi
+
+    local id day journal
+    for log in "${logs[@]}"; do
+        id="$(sed -n 's/^  id:: //p' "$log" | head -n 1)"
+        day="$(basename "$log" | sed -n 's/.*_\([0-9]\{4\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)-[0-9]\{6\}\.md$/\1_\2_\3/p')"
+        [ -n "$day" ] || day="$(date +%Y_%m_%d)"
+        journal="$LOGSEQ_GRAPH_DIR/journals/$day.md"
+
+        if [ -n "$id" ] && [ -f "$journal" ] && grep -qF "id:: $id" "$journal"; then
+            echo "📝 $(basename "$log") is already in $journal"
+            continue
+        fi
+        mkdir -p "$LOGSEQ_GRAPH_DIR/journals"
+        # Start on a fresh line if the journal doesn't end with a newline
+        if [ -s "$journal" ] && [ -n "$(tail -c 1 "$journal")" ]; then
+            echo >> "$journal"
+        fi
+        if cat "$log" >> "$journal"; then
+            echo "📝 Appended $(basename "$log") to $journal"
+        else
+            echo "⚠️ Could not append $log to $journal"
+        fi
+    done
+    return 0
+}
+
 # --- 3. Worktree & Workspace Initialization ---
 init_worktree_environment() {
     local agent_prefix="${1:-agent}"
@@ -171,6 +227,7 @@ init_worktree_environment() {
 
     SANDBOX_HOME="$BASE_SANDBOX_DIR/sessions/${agent_prefix}_${SESSION_ID}"
     CONTAINER_NAME="${agent_prefix}_${SESSION_ID}"
+    SESSION_LOG_DIR="$LOGSEQ_LOG_DIR/$CONTAINER_NAME"
 
     mkdir -p "$SANDBOX_HOME" "$SHARED_M2_DIR" "$WORKTREES_BASE_DIR"
 
@@ -185,6 +242,7 @@ init_worktree_environment() {
 _cleanup_and_merge_prompt() {
     set +e
     _sync_auth_back
+    _sync_logseq_logs
 
     echo ""
     echo "🔍 Checking for work done in session..."
@@ -265,6 +323,15 @@ run_agent_container() {
 
     HOST_GH_TOKEN=$(gh auth token 2>/dev/null || true)
 
+    # logseq-tracker: mount the installed copy read-only (never one found in the
+    # project being worked on) and this session's host directory for its logs.
+    local tracker_path="$_COMMON_SANDBOX_DIR/../share/logseq-tracker"  # (bin/ and share/ are siblings)
+    if [ ! -f "$tracker_path" ]; then
+        echo "ERROR: $tracker_path not found; reinstall llm-sandbox." >&2
+        exit 1
+    fi
+    mkdir -p "$SESSION_LOG_DIR"
+
     # Base flags shared across all tools
     local base_flags=(
         --rm -it
@@ -276,6 +343,9 @@ run_agent_container() {
         -v "$COMMON_GIT_DIR":"$COMMON_GIT_DIR":Z
         -v "$SANDBOX_HOME":/root:Z
         -v "$SHARED_M2_DIR":/root/.m2/repository:z
+        -v "$tracker_path":/usr/local/bin/logseq-tracker:ro,z
+        -v "$SESSION_LOG_DIR":/logseq-logs:z
+        -e LOGSEQ_LOG_DIR=/logseq-logs
     )
 
     if [ -n "$HOST_GH_TOKEN" ]; then
@@ -285,6 +355,7 @@ run_agent_container() {
     echo "🚀 Launching container [$CONTAINER_NAME]..."
     echo "📂 Workspace: $WORKTREE_DIR -> /workspace"
     echo "☕ Maven cache: $SHARED_M2_DIR -> /root/.m2/repository"
+    echo "📝 Logseq logs: $SESSION_LOG_DIR -> /logseq-logs (synced to $LOGSEQ_GRAPH_DIR on exit)"
 
     podman run "${base_flags[@]}" "${extra_args[@]}" "$image_name" "${container_cmd[@]}"
 }

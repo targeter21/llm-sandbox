@@ -32,7 +32,7 @@ bin/        launcher scripts and common-sandbox.sh
 images/     Dockerfiles for the base image and each agent image
 rules/      default agent rules, installed for all three agents
 skills/     default agent skills, installed for all three agents
-share/      helper files mounted into containers (claude-setup)
+share/      helper files mounted into containers (claude-setup, bob-prompt, logseq-tracker)
 systemd/    service unit template
 justfile    image build / startup recipes
 install.sh  installer
@@ -119,6 +119,18 @@ directory:
 | `rules/ripwire.md` | Tells the agent to explore code with `ripwire` instead of reading whole files |
 | `skills/code-review/` | Review a branch/PR against repo coding standards and the originating spec |
 | `skills/grill-me/` | Stress-test a plan or decision by questioning the user |
+| `skills/fix-github/` | Fix a GitHub issue, logging the run in Logseq format |
+| `skills/review-fix/` | Review the branch's changes and fix what is found, logging each finding and fix |
+| `skills/review-only/` | Review the branch's changes without editing; prints the findings as a Logseq log |
+| `skills/request-change/` | Log a wanted code change as a Logseq `TODO`, then ask whether to implement it now or leave it logged |
+
+The last four use `logseq-tracker` ([`share/logseq-tracker`](share/logseq-tracker)), which every container gets
+at `/usr/local/bin/logseq-tracker`. Each session writes its logs to its own directory,
+`~/.local/share/llm-sandbox-logs/<agent>_<session>` on the host (override the base with `LOGSEQ_LOG_DIR`; it is
+outside `BASE_SANDBOX_DIR`, so `--clean`/`--prune` keep it). When the container ends, the exit trap appends each
+`run_*.md` log to the Logseq journal of the day the run started, `$LOGSEQ_GRAPH_DIR/journals/YYYY_MM_DD.md`
+(default graph `~/Documents/Logseq`; created if missing). A log whose `id::` is already in the journal is skipped, so
+nothing is duplicated. If the graph directory doesn't exist the logs are just kept in the session directory.
 
 ### What the containers see
 

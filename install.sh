@@ -109,7 +109,7 @@ install() {
     rm -rf "${INSTALL_DIR:?}/bin" "${INSTALL_DIR:?}/images" "${INSTALL_DIR:?}/share"
     cp -R "$REPO_DIR/bin" "$REPO_DIR/images" "$REPO_DIR/share" "$INSTALL_DIR/"
     cp "$REPO_DIR/justfile" "$INSTALL_DIR/justfile"
-    chmod +x "$INSTALL_DIR"/bin/* "$INSTALL_DIR"/share/claude-setup "$INSTALL_DIR"/share/bob-prompt
+    chmod +x "$INSTALL_DIR"/bin/* "$INSTALL_DIR"/share/claude-setup "$INSTALL_DIR"/share/bob-prompt "$INSTALL_DIR"/share/logseq-tracker
 
     echo "Linking commands into $BIN_DIR..."
     local entry

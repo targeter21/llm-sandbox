@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""
+Path: /usr/local/bin/logseq-tracker
+
+Logs go to $LOGSEQ_LOG_DIR (the sandbox launchers mount a host directory there so
+logs survive the session and stay out of the git worktree). Default outside a
+container: ~/.local/share/logseq-tracker.
+
+--issue (alias --ref) says what the run is about: an issue number, or any label
+such as a branch name. Each `init` starts a new timestamped log file;
+update/finish/show work on the latest run of the same ref + action.
+
+Usage:
+  logseq-tracker init   --issue 42 --action fix-github --repo owner/repo --title "Fix memory leak"
+  logseq-tracker update --issue 42 --action fix-github --synopsis "Investigating sockets" --file internal/net/socket.go
+  logseq-tracker update --ref my-branch --action review-only --finding "pkg/a.go:10 nil deref" --severity high
+  logseq-tracker update --ref my-branch --action review-fix --resolve 1 --file pkg/a.go
+  logseq-tracker finish --issue 42 --action fix-github --status completed --synopsis "Closed sockets" --branch fix/leak --verify "Tests passing"
+  logseq-tracker show   --ref my-branch --action review-only
+  logseq-tracker request --ref cache-ttl --repo owner/repo --title "Make cache TTL configurable" \\
+      --desired "TTL read from config" --current "Hard-coded 60s in Cache.java:42" \\
+      --where "src/Cache.java" --acceptance "Test sets TTL via config" --base main@abc1234
+      (then, if it is implemented right away: update --action change-request --file ..., finish --status completed ...)
+"""
+
+import argparse
+import datetime
+import json
+import os
+import re
+import sys
+import uuid
+from pathlib import Path
+
+LOG_DIR = Path(os.environ.get("LOGSEQ_LOG_DIR") or Path.home() / ".local/share/logseq-tracker")
+SEVERITIES = ["high", "medium", "low", "info"]
+
+def slug(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", text).strip("-") or "run"
+
+def one_line(text) -> str:
+    """Logseq blocks are line based: collapse newlines so a value stays one block."""
+    return " ".join(str(text).split())
+
+def get_state_file(ref: str, action: str) -> Path:
+    return LOG_DIR / f".state_{slug(ref)}_{slug(action)}.json"
+
+def new_state(ref: str, action: str, repo: str, title: str, synopsis: str) -> dict:
+    now = datetime.datetime.now()
+    return {
+        "id": str(uuid.uuid4()),
+        "start_time": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "output": f"run_{slug(ref)}_{slug(action)}_{now.strftime('%Y%m%d-%H%M%S')}.md",
+        "ref": ref,
+        "action": action,
+        "repo": repo,
+        "title": title,
+        "status": "in-progress",
+        "synopsis": synopsis,
+        "files": [],
+        "findings": [],
+        "branch": None,
+        "verification": None,
+        "request": None,
+    }
+
+def render_logseq_markdown(state: dict) -> str:
+    ref = state["ref"]
+    req = state.get("request")
+    if req:
+        # A change request is a task: TODO until it has been implemented.
+        marker = "DONE" if state["status"] == "completed" else "TODO"
+        header = f"- {marker} Change request: {one_line(state['title'])} #agent-request"
+    else:
+        header = f"- ## [[Agent-Log]] - {state['start_time']}"
+    lines = [
+        header,
+        f"  id:: {state['id']}",
+        f"  action:: {one_line(state['action'])}",
+        f"  status:: {state['status']}",
+        f"  repo:: {one_line(state['repo'])}",
+        f"  issue:: #{ref}" if ref.isdigit() else f"  ref:: {one_line(ref)}",
+    ]
+    if state.get("branch"):
+        lines.append(f"  branch:: {one_line(state['branch'])}")
+
+    if req:
+        lines.append(f"  created:: {state['start_time']}")
+        if req.get("base"):
+            lines.append(f"  base:: {one_line(req['base'])}")
+        for label, key in [("Desired behavior", "desired"), ("Current behavior", "current"),
+                           ("Where", "where"), ("Acceptance", "acceptance")]:
+            if req.get(key):
+                lines.append(f"  - **{label}:** {one_line(req[key])}")
+        if state["status"] != "open":
+            lines.append(f"  - **Outcome:** {one_line(state['synopsis'])}")
+    else:
+        lines.extend([
+            f"  - **Title:** {one_line(state['title'])}",
+            f"  - **Synopsis:** {one_line(state['synopsis'])}",
+        ])
+
+    if state.get("findings"):
+        lines.append("  - **Findings:**")
+        for f in state["findings"]:
+            marker = "DONE" if f["fixed"] else "TODO"
+            lines.append(f"    - {marker} [{f['severity']}] {one_line(f['text'])}")
+
+    if state.get("files"):
+        lines.append("  - **Files Touched:**")
+        for f in state["files"]:
+            lines.append(f"    - `{one_line(f)}`")
+
+    if state.get("verification"):
+        lines.append(f"  - **Verification:** {one_line(state['verification'])}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+def main():
+    parser = argparse.ArgumentParser(description="Logseq Run Logger for Agent Workflows")
+    subparsers = parser.add_subparsers(dest="cmd")
+
+    def add_key(p):
+        p.add_argument("--issue", "--ref", dest="ref", required=True,
+                       help="issue number, or a label such as a branch name")
+        p.add_argument("--action", required=True)
+
+    # Command: init
+    p_init = subparsers.add_parser("init")
+    add_key(p_init)
+    p_init.add_argument("--repo", required=True)
+    p_init.add_argument("--title", required=True)
+
+    # Command: update
+    p_update = subparsers.add_parser("update")
+    add_key(p_update)
+    p_update.add_argument("--synopsis", default=None)
+    p_update.add_argument("--file", default=None)
+    p_update.add_argument("--finding", default=None, help="record a review finding (include path:line)")
+    p_update.add_argument("--severity", choices=SEVERITIES, default="medium")
+    p_update.add_argument("--resolve", type=int, default=None, metavar="N",
+                          help="mark finding number N as fixed")
+
+    # Command: finish
+    p_finish = subparsers.add_parser("finish")
+    add_key(p_finish)
+    p_finish.add_argument("--status", choices=["completed", "failed"], required=True)
+    p_finish.add_argument("--synopsis", required=True)
+    p_finish.add_argument("--branch", default=None)
+    p_finish.add_argument("--verify", default=None)
+
+    # Command: request
+    p_req = subparsers.add_parser(
+        "request", help="log a code change request as a Logseq TODO (action: change-request)")
+    p_req.add_argument("--issue", "--ref", dest="ref", required=True,
+                       help="short unique label for the request, e.g. a kebab-case title")
+    p_req.add_argument("--repo", required=True)
+    p_req.add_argument("--title", required=True)
+    p_req.add_argument("--desired", required=True, help="the behavior or feature that is wanted")
+    p_req.add_argument("--current", default=None, help="what happens today (with path:line)")
+    p_req.add_argument("--where", default=None, help="files / symbols involved")
+    p_req.add_argument("--acceptance", default=None, help="how to tell it is done")
+    p_req.add_argument("--base", default=None, help="branch@sha the references were true against")
+
+    # Command: show
+    p_show = subparsers.add_parser("show", help="print the current log as Logseq markdown")
+    add_key(p_show)
+
+    args = parser.parse_args()
+    if not args.cmd:
+        parser.print_help()
+        return
+
+    if args.cmd == "request":
+        args.action = "change-request"
+
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    state_file = get_state_file(args.ref, args.action)
+
+    if args.cmd == "request":
+        state = new_state(args.ref, args.action, args.repo, args.title, "Logged, not implemented.")
+        state["status"] = "open"
+        state["request"] = {k: getattr(args, k) for k in ("desired", "current", "where", "acceptance", "base")}
+    elif args.cmd == "init":
+        state = new_state(args.ref, args.action, args.repo, args.title, "Task initialized by agent.")
+    elif state_file.exists():
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+    elif args.cmd == "show":
+        sys.exit(f"No log found for {args.ref} / {args.action}.")
+    else:
+        print(f"Warning: No existing state found for {args.ref}. Initializing blank.", file=sys.stderr)
+        state = new_state(args.ref, args.action, "unknown", "Untracked session", "")
+
+    if args.cmd == "update":
+        if args.synopsis:
+            state["synopsis"] = args.synopsis
+        if args.file and args.file not in state["files"]:
+            state["files"].append(args.file)
+        if args.finding:
+            state["findings"].append({"severity": args.severity, "text": args.finding, "fixed": False})
+            print(f"Added finding #{len(state['findings'])}")
+        if args.resolve is not None:
+            if not 1 <= args.resolve <= len(state["findings"]):
+                sys.exit(f"No finding #{args.resolve} (have {len(state['findings'])}).")
+            state["findings"][args.resolve - 1]["fixed"] = True
+    elif args.cmd == "finish":
+        state["status"] = args.status
+        state["synopsis"] = args.synopsis
+        if args.branch:
+            state["branch"] = args.branch
+        if args.verify:
+            state["verification"] = args.verify
+    elif args.cmd == "show":
+        print(render_logseq_markdown(state))
+        return
+
+    output_file = LOG_DIR / state["output"]
+    state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    output_file.write_text(render_logseq_markdown(state), encoding="utf-8")
+    print(f"Updated Logseq log: {output_file}")
+
+if __name__ == "__main__":
+    main()
