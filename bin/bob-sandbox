@@ -6,6 +6,15 @@ source "$SCRIPT_DIR/common-sandbox.sh"
 
 handle_maintenance_flags "$1"
 
+# Interactive sessions skip tool-approval prompts, like the Claude and Gemini
+# launchers (the container is the sandbox). --auto-approve is ignored in an
+# untrusted folder and every session worktree is new, so also pass --trust (the
+# trust record only lives in the throwaway session home).
+case "${1:-}" in
+    "")   set -- chat --auto-approve --trust ;;
+    chat) shift; set -- chat --auto-approve --trust "$@" ;;
+esac
+
 # Bob-specific paths
 BOB_SETTINGS_DIR="$HOME/.bob/settings"
 BOB_CONFIG_DIR="$HOME/.bob"
