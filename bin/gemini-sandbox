@@ -23,8 +23,11 @@ seed_from_host "$GEMINI_CONFIG_DIR" "$SANDBOX_HOME/.gemini" \
 # Rules (if any) are compiled into the session's GEMINI.md, replacing the copied one.
 compile_rules "$GEMINI_RULES_DIR" "$SANDBOX_HOME/.gemini/GEMINI.md"
 
+# The workspace is a throwaway worktree inside the container, so always trust it
+# (the session home has no trustedFolders.json, which would otherwise leave it untrusted).
 TOOL_PODMAN_ARGS=(
     -e CLI_TOOL_NAME="gemini"
+    -e GEMINI_CLI_TRUST_WORKSPACE="true"
 )
 
 # Auth is the GEMINI_API_KEY environment variable, forwarded on every launch.
