@@ -340,7 +340,7 @@ run_agent_container() {
         -e TERM="${TERM:-xterm-256color}"
         -e COLORTERM="${COLORTERM:-truecolor}"
         -v "$WORKTREE_DIR":/workspace:Z
-        -v "$COMMON_GIT_DIR":"$COMMON_GIT_DIR":Z
+        -v "$COMMON_GIT_DIR":"$COMMON_GIT_DIR":z
         -v "$SANDBOX_HOME":/root:Z
         -v "$SHARED_M2_DIR":/root/.m2/repository:z
         -v "$tracker_path":/usr/local/bin/logseq-tracker:ro,z
