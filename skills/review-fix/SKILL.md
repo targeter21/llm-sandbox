@@ -43,11 +43,15 @@ For **each** problem, as soon as you find it:
 Add a short running synopsis now and then:
 `logseq-tracker update --ref "<BRANCH>" --action review-fix --synopsis "Reviewed 3 of 7 files; 2 fixed"`
 
+To correct or drop a finding you already logged (the number is printed as `Added finding #N`; `show` lists them in order):
+`logseq-tracker update --ref "<BRANCH>" --action review-fix --edit N --finding "path/file.ext:42 <corrected text>" [--severity <level>]`
+`logseq-tracker update --ref "<BRANCH>" --action review-fix --remove N` (later findings are renumbered)
+
 Keep fixes small and in the existing style. Do not commit unless the user asked.
 
 ## 4. Verify
 
-Run the project's relevant build/tests/lint for the files you changed. If they fail because of your fixes, repair them or revert that fix and mark the finding as unresolved by noting it in the synopsis.
+Run the project's relevant build/tests/lint for the files you changed, and record the result as soon as you have it: `logseq-tracker update --ref "<BRANCH>" --action review-fix --verify "<command> -> <result>"`. If they fail because of your fixes, repair them or revert that fix and mark the finding as unresolved by noting it in the synopsis.
 
 ## 5. Finish the log and report
 

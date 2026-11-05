@@ -15,6 +15,9 @@ Usage:
   logseq-tracker update --issue 42 --action fix-github --synopsis "Investigating sockets" --file internal/net/socket.go
   logseq-tracker update --ref my-branch --action review-only --finding "pkg/a.go:10 nil deref" --severity high
   logseq-tracker update --ref my-branch --action review-fix --resolve 1 --file pkg/a.go
+  logseq-tracker update --ref my-branch --action review-only --verify "mvn test: 120 passed, 0 failed"
+  logseq-tracker update --ref my-branch --action review-only --edit 2 --finding "pkg/a.go:10 corrected text" --severity low
+  logseq-tracker update --ref my-branch --action review-only --remove 3   (later findings are renumbered)
   logseq-tracker finish --issue 42 --action fix-github --status completed --synopsis "Closed sockets" --branch fix/leak --verify "Tests passing"
   logseq-tracker show   --ref my-branch --action review-only
   logseq-tracker request --ref cache-ttl --repo owner/repo --title "Make cache TTL configurable" \\
@@ -64,6 +67,13 @@ def new_state(ref: str, action: str, repo: str, title: str, synopsis: str) -> di
         "request": None,
     }
 
+def add_verification(state: dict, text: str) -> None:
+    """--verify can be given many times; each call adds a line."""
+    checks = state.get("verification") or []
+    if isinstance(checks, str):
+        checks = [checks]
+    state["verification"] = checks + [text]
+
 def render_logseq_markdown(state: dict) -> str:
     ref = state["ref"]
     req = state.get("request")
@@ -111,8 +121,15 @@ def render_logseq_markdown(state: dict) -> str:
         for f in state["files"]:
             lines.append(f"    - `{one_line(f)}`")
 
-    if state.get("verification"):
-        lines.append(f"  - **Verification:** {one_line(state['verification'])}")
+    checks = state.get("verification") or []
+    if isinstance(checks, str):  # logs written before --verify could repeat
+        checks = [checks]
+    if len(checks) == 1:
+        lines.append(f"  - **Verification:** {one_line(checks[0])}")
+    elif checks:
+        lines.append("  - **Verification:**")
+        for c in checks:
+            lines.append(f"    - {one_line(c)}")
 
     lines.append("")
     return "\n".join(lines)
@@ -138,9 +155,14 @@ def main():
     p_update.add_argument("--synopsis", default=None)
     p_update.add_argument("--file", default=None)
     p_update.add_argument("--finding", default=None, help="record a review finding (include path:line)")
-    p_update.add_argument("--severity", choices=SEVERITIES, default="medium")
+    p_update.add_argument("--severity", choices=SEVERITIES, default=None)
     p_update.add_argument("--resolve", type=int, default=None, metavar="N",
                           help="mark finding number N as fixed")
+    p_update.add_argument("--verify", default=None, help="record what was run to verify and the result (repeatable; each call adds a line)")
+    p_update.add_argument("--edit", type=int, default=None, metavar="N",
+                          help="change finding N: --finding replaces its text, --severity its severity")
+    p_update.add_argument("--remove", type=int, default=None, metavar="N",
+                          help="delete finding number N (later findings are renumbered)")
 
     # Command: finish
     p_finish = subparsers.add_parser("finish")
@@ -148,7 +170,7 @@ def main():
     p_finish.add_argument("--status", choices=["completed", "failed"], required=True)
     p_finish.add_argument("--synopsis", required=True)
     p_finish.add_argument("--branch", default=None)
-    p_finish.add_argument("--verify", default=None)
+    p_finish.add_argument("--verify", default=None, help="add a verification line")
 
     # Command: request
     p_req = subparsers.add_parser(
@@ -174,6 +196,9 @@ def main():
 
     if args.cmd == "request":
         args.action = "change-request"
+    severity_given = getattr(args, "severity", None) is not None
+    if args.cmd == "update" and not severity_given:
+        args.severity = "medium"
 
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     state_file = get_state_file(args.ref, args.action)
@@ -197,20 +222,40 @@ def main():
             state["synopsis"] = args.synopsis
         if args.file and args.file not in state["files"]:
             state["files"].append(args.file)
-        if args.finding:
+        if args.verify:
+            add_verification(state, args.verify)
+
+        def check_n(n):
+            if not 1 <= n <= len(state["findings"]):
+                sys.exit(f"No finding #{n} (have {len(state['findings'])}).")
+
+        if args.edit is not None:
+            check_n(args.edit)
+            if not args.finding and not severity_given:
+                sys.exit("--edit needs --finding and/or --severity.")
+            target = state["findings"][args.edit - 1]
+            if args.finding:
+                target["text"] = args.finding
+            if severity_given:
+                target["severity"] = args.severity
+            print(f"Edited finding #{args.edit}")
+        elif args.finding:
             state["findings"].append({"severity": args.severity, "text": args.finding, "fixed": False})
             print(f"Added finding #{len(state['findings'])}")
         if args.resolve is not None:
-            if not 1 <= args.resolve <= len(state["findings"]):
-                sys.exit(f"No finding #{args.resolve} (have {len(state['findings'])}).")
+            check_n(args.resolve)
             state["findings"][args.resolve - 1]["fixed"] = True
+        if args.remove is not None:
+            check_n(args.remove)
+            del state["findings"][args.remove - 1]
+            print(f"Removed finding #{args.remove}")
     elif args.cmd == "finish":
         state["status"] = args.status
         state["synopsis"] = args.synopsis
         if args.branch:
             state["branch"] = args.branch
         if args.verify:
-            state["verification"] = args.verify
+            add_verification(state, args.verify)
     elif args.cmd == "show":
         print(render_logseq_markdown(state))
         return
