@@ -23,6 +23,9 @@ fedora:latest
   repository on a temporary branch, starts the matching container, and on exit offers to merge the result.
 - `review-pr <pr-number> <bob|gemini|claude>` – checks out a GitHub PR with `gh` and starts the chosen launcher
   with a prompt to review the branch.
+- `fix-issue <issue-number> <bob|gemini|claude>` – reads the GitHub issue title with `gh`, creates and checks out a
+  branch named `<issue-number>_<short_words_from_title>`, and starts the chosen launcher with a prompt to fix the
+  issue using the `fix-github` skill.
 - `common-sandbox` – shared engine (worktrees, container flags, cleanup). The launchers source it; it can also be
   run directly for maintenance: `common-sandbox --prune` or `common-sandbox --clean`.
 - A systemd **user** service runs at startup, calls `common-sandbox --prune` and rebuilds all images via `just`.
@@ -204,6 +207,12 @@ is skipped: Claude still starts, but no gcloud login is attempted and it only ha
 `~/.claude/settings.json` provides. That file may already contain the `CLAUDE_CODE_USE_VERTEX` /
 `ANTHROPIC_VERTEX_PROJECT_ID` environment values, but it does not create the gcloud login. If your `settings.json`
 sets a different project than `CLAUDE_VERTEX_PROJECT_ID`, keep the two consistent.
+
+> **Don't set the Vertex variables in the `env` block of `~/.claude/settings.json`** (`CLAUDE_CODE_USE_VERTEX`,
+> `CLOUD_ML_REGION`, `ANTHROPIC_VERTEX_PROJECT_ID`). Claude Code applies that block over the environment variables
+> exported by `claude-setup`, so a stale value there silently wins. For example `"CLAUDE_CODE_USE_VERTEX": "0"` keeps
+> Vertex AI disabled even though `claude-setup` exported `1`. Remove those keys and let `CLAUDE_VERTEX_PROJECT_ID`
+> drive them. Edits made to `settings.json` inside a sandbox are discarded on exit, so fix the host file.
 
 To persist another file a tool writes at login, copy it in with `seed_auth_from_host` instead of `seed_from_host`
 in the matching launcher; it is then synced back on exit (and may be absent on the host the first time).

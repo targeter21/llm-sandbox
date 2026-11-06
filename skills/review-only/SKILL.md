@@ -7,10 +7,17 @@ Review the changes this branch adds and output the findings as a Logseq-format l
 
 ## 1. Pin the changes under review
 
-Use the base the user gave. Otherwise use the branch's merge-base with the default branch:
+Use the base the user gave. Otherwise pick the base in this order:
+
+1. If the branch belongs to a PR (e.g. it was checked out with `gh pr checkout`), use the PR's base branch, since PRs can target branches other than the default:
+   ```
+   gh pr view --json baseRefName -q .baseRefName
+   ```
+   Then use `origin/<baseRefName>` as the base ref.
+2. Otherwise use the default branch (`origin/HEAD`, then `main`, then `master`).
 
 ```
-base=$(git merge-base HEAD origin/HEAD 2>/dev/null || git merge-base HEAD main || git merge-base HEAD master)
+base=$(git merge-base HEAD "<BASE_REF>")
 git diff "$base"...HEAD --stat
 git log "$base"..HEAD --oneline
 ```

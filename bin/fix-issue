@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Maximum number of words / characters kept from the issue title in the branch name
+MAX_WORDS=6
+MAX_CHARS=50
+
+# 1. Validate argument count
+if [[ $# -ne 2 ]]; then
+    echo "Error: Exactly 2 arguments required." >&2
+    echo "Usage: $0 <issue-number> <bob|gemini|claude>" >&2
+    exit 1
+fi
+
+ISSUE_NUM="$1"
+FIXER="$2"
+
+# 2. Validate issue number is numeric
+if ! [[ "$ISSUE_NUM" =~ ^[0-9]+$ ]]; then
+    echo "Error: Issue number must be a positive integer. Received: '$ISSUE_NUM'" >&2
+    exit 1
+fi
+
+# 3. Validate agent value
+case "$FIXER" in
+    bob|gemini|claude)
+        ;;
+    *)
+        echo "Error: Invalid agent '$FIXER'. Allowed options: bob, gemini, claude" >&2
+        exit 1
+        ;;
+esac
+
+# 4. Check for gh CLI availability
+if ! command -v gh &>/dev/null; then
+    echo "Error: GitHub CLI ('gh') is not installed or not in PATH." >&2
+    exit 1
+fi
+
+# 5. Check that the agent sandbox executable exists
+EXECUTABLE="${FIXER}-sandbox"
+if ! command -v "$EXECUTABLE" &>/dev/null; then
+    echo "Error: Executable '$EXECUTABLE' not found in PATH." >&2
+    exit 1
+fi
+
+# 6. Check we are inside a git repository
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Error: Current directory is not inside a Git repository." >&2
+    exit 1
+fi
+
+# 7. Check issue existence and read its title
+echo "Checking existence of issue #${ISSUE_NUM}..."
+if ! TITLE="$(gh issue view "$ISSUE_NUM" --json title -q .title 2>/dev/null)"; then
+    echo "Error: Issue #${ISSUE_NUM} was not found or is inaccessible." >&2
+    exit 1
+fi
+
+# 8. Build the branch name: <issue>_<first few words of the title separated by _>
+SLUG="$(printf '%s' "$TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//')"
+SHORT=""
+count=0
+IFS='_' read -r -a words <<< "$SLUG"
+for word in "${words[@]}"; do
+    [[ -z "$word" ]] && continue
+    candidate="${SHORT:+${SHORT}_}${word}"
+    if (( count >= MAX_WORDS )) || { (( count > 0 )) && (( ${#candidate} > MAX_CHARS )); }; then
+        break
+    fi
+    SHORT="$candidate"
+    count=$((count + 1))
+done
+SHORT="${SHORT:0:MAX_CHARS}"
+BRANCH="${ISSUE_NUM}${SHORT:+_${SHORT}}"
+
+# 9. Create (or switch to) the branch
+if git show-ref --verify --quiet "refs/heads/${BRANCH}"; then
+    echo "Branch '${BRANCH}' already exists; checking it out..."
+    git checkout "$BRANCH"
+else
+    echo "Creating branch '${BRANCH}' from '$(git rev-parse --abbrev-ref HEAD)'..."
+    git checkout -b "$BRANCH"
+fi
+
+# 10. Run the agent
+PROMPT="Use the fix-github skill to fix GitHub issue #${ISSUE_NUM}. The fix branch '${BRANCH}' is already checked out and the sandbox merges your commits back into it, so commit your changes and do not create or switch branches."
+echo "Executing: $EXECUTABLE \"$PROMPT\""
+"$EXECUTABLE" "$PROMPT"
