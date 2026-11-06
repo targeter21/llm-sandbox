@@ -293,13 +293,24 @@ _cleanup_and_merge_prompt() {
 
         case "$ACTION" in
             ""|[yY][eE][sS]|[yY])
-                echo "🔀 Merging $TEMP_BRANCH into $CURRENT_BRANCH..."
-                if git -C "$MAIN_REPO_DIR" merge --no-edit "$TEMP_BRANCH"; then
-                    echo "✅ Successfully merged!"
-                else
-                    echo "⚠️ Merge conflict encountered! Aborted merge. Branch '$TEMP_BRANCH' kept."
-                    git -C "$MAIN_REPO_DIR" merge --abort 2>/dev/null || true
+                # 'git merge' merges into whatever is checked out now; make sure that
+                # is still the branch the session started from.
+                local now_branch
+                now_branch="$(git -C "$MAIN_REPO_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+                if [ "$now_branch" != "$CURRENT_BRANCH" ]; then
+                    echo "⚠️ '$MAIN_REPO_DIR' is now on '$now_branch', not '$CURRENT_BRANCH'. Not merging."
+                    echo "   Check out '$CURRENT_BRANCH' and run: git merge $TEMP_BRANCH"
+                    echo "📌 Branch preserved: $TEMP_BRANCH"
                     keep_branch=true
+                else
+                    echo "🔀 Merging $TEMP_BRANCH into $CURRENT_BRANCH..."
+                    if git -C "$MAIN_REPO_DIR" merge --no-edit "$TEMP_BRANCH"; then
+                        echo "✅ Successfully merged!"
+                    else
+                        echo "⚠️ Merge conflict encountered! Aborted merge. Branch '$TEMP_BRANCH' kept."
+                        git -C "$MAIN_REPO_DIR" merge --abort 2>/dev/null || true
+                        keep_branch=true
+                    fi
                 fi
                 ;;
             [kK][eE][eE][pP]*|[kK])
