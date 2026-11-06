@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # install.sh - Install llm-sandbox for the current user.
 #
-#   - copies bin/, images/, share/ and the justfile to $INSTALL_DIR
-#   - symlinks the launcher scripts into $BIN_DIR
-#   - copies the shared rules/ and skills/ into the config directory of each
-#     agent ($BOB_DIR, $CLAUDE_DIR, $GEMINI_DIR). Files with the same name are
+#   - copies bin/, images/, share/, rules/, skills/ and the justfile to $INSTALL_DIR.
+#     The launchers seed every sandbox session with the rules/ and skills/ found
+#     there; the agent config directories below are layered on top.
+#   - symlinks the launcher scripts (bob-sandbox, claude-sandbox, gemini-sandbox,
+#     review-pr, common-sandbox) into $BIN_DIR
+#   - unless --no-agent-config is given, also copies the shared rules/ and skills/
+#     into the config directory of each agent ($BOB_DIR, $CLAUDE_DIR, $GEMINI_DIR)
+#     so host-side runs of those tools pick them up. Files with the same name are
 #     overwritten, other files are left alone. claude-sandbox and gemini-sandbox
 #     compile the rules into CLAUDE.md / GEMINI.md when they start.
 #   - installs and enables a systemd *user* service that prunes sandbox caches
 #     (via common-sandbox) and rebuilds the container images at login/startup
 #
-# Usage: ./install.sh [--uninstall] [--no-service]
+# Usage: ./install.sh [--uninstall] [--no-service] [--no-agent-config]
 #
 # Overridable environment variables:
 #   INSTALL_DIR  default: ${XDG_DATA_HOME:-$HOME/.local/share}/llm-sandbox
@@ -35,6 +39,7 @@ LINKS=(
     "bob-sandbox:bob-sandbox"
     "claude-sandbox:claude-sandbox"
     "gemini-sandbox:gemini-sandbox"
+    "review-pr:review-pr"
     "common-sandbox:common-sandbox.sh"
 )
 
@@ -43,12 +48,14 @@ AGENT_DIRS=("$BOB_DIR" "$CLAUDE_DIR" "$GEMINI_DIR")
 
 UNINSTALL=false
 INSTALL_SERVICE=true
+INSTALL_AGENT_CONFIG=true
 for arg in "$@"; do
     case "$arg" in
-        --uninstall)  UNINSTALL=true ;;
-        --no-service) INSTALL_SERVICE=false ;;
+        --uninstall)       UNINSTALL=true ;;
+        --no-service)      INSTALL_SERVICE=false ;;
+        --no-agent-config) INSTALL_AGENT_CONFIG=false ;;
         -h|--help)
-            sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -106,8 +113,9 @@ install() {
 
     echo "Installing files to $INSTALL_DIR..."
     mkdir -p "$INSTALL_DIR" "$BIN_DIR"
-    rm -rf "${INSTALL_DIR:?}/bin" "${INSTALL_DIR:?}/images" "${INSTALL_DIR:?}/share"
-    cp -R "$REPO_DIR/bin" "$REPO_DIR/images" "$REPO_DIR/share" "$INSTALL_DIR/"
+    rm -rf "${INSTALL_DIR:?}/bin" "${INSTALL_DIR:?}/images" "${INSTALL_DIR:?}/share" \
+           "${INSTALL_DIR:?}/rules" "${INSTALL_DIR:?}/skills"
+    cp -R "$REPO_DIR/bin" "$REPO_DIR/images" "$REPO_DIR/share" "$REPO_DIR/rules" "$REPO_DIR/skills" "$INSTALL_DIR/"
     cp "$REPO_DIR/justfile" "$INSTALL_DIR/justfile"
     chmod +x "$INSTALL_DIR"/bin/* "$INSTALL_DIR"/share/claude-setup "$INSTALL_DIR"/share/bob-prompt "$INSTALL_DIR"/share/logseq-tracker
 
@@ -122,15 +130,19 @@ install() {
         *) echo "NOTE: $BIN_DIR is not in your PATH." ;;
     esac
 
-    # Real copies (not symlinks): the agent config dirs are bind-mounted into
-    # containers, where a symlink into $INSTALL_DIR/$REPO_DIR would dangle.
-    local agent_dir
-    for agent_dir in "${AGENT_DIRS[@]}"; do
-        echo "Installing rules and skills to $agent_dir..."
-        mkdir -p "$agent_dir/rules" "$agent_dir/skills"
-        cp -R "$REPO_DIR/rules/." "$agent_dir/rules/"
-        cp -R "$REPO_DIR/skills/." "$agent_dir/skills/"
-    done
+    # Optional: also put the rules and skills in the agents' own config dirs
+    # (real copies, not symlinks) so host-side runs of the tools use them.
+    if [ "$INSTALL_AGENT_CONFIG" = true ]; then
+        local agent_dir
+        for agent_dir in "${AGENT_DIRS[@]}"; do
+            echo "Installing rules and skills to $agent_dir..."
+            mkdir -p "$agent_dir/rules" "$agent_dir/skills"
+            cp -R "$REPO_DIR/rules/." "$agent_dir/rules/"
+            cp -R "$REPO_DIR/skills/." "$agent_dir/skills/"
+        done
+    else
+        echo "Skipping agent config directories (--no-agent-config); sandboxes use the rules and skills in $INSTALL_DIR."
+    fi
 
     if [ "$INSTALL_SERVICE" = false ]; then
         echo "Skipping systemd service (--no-service)."

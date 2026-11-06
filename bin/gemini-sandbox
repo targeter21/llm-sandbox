@@ -16,12 +16,15 @@ mkdir -p "$GEMINI_CONFIG_DIR"
 init_worktree_environment "gemini"
 
 # Seed the session home (/root) with copies of the host config. The agent works
-# on the copies; the host's ~/.gemini is never mounted.
+# on the copies; the host's ~/.gemini is never mounted. The skills shipped with
+# llm-sandbox go in first; the host's own (if any) are layered on top.
+seed_shipped skills "$SANDBOX_HOME/.gemini/skills"
 seed_from_host "$GEMINI_CONFIG_DIR" "$SANDBOX_HOME/.gemini" \
     settings.json .env skills policies GEMINI.md
 
-# Rules (if any) are compiled into the session's GEMINI.md, replacing the copied one.
-compile_rules "$GEMINI_RULES_DIR" "$SANDBOX_HOME/.gemini/GEMINI.md"
+# Rules (shipped, then the host's, which win on a name clash) are compiled into
+# the session's GEMINI.md, replacing the copied one.
+compile_rules "$SANDBOX_HOME/.gemini/GEMINI.md" "$SHIPPED_RULES_DIR" "$GEMINI_RULES_DIR"
 
 # The workspace is a throwaway worktree inside the container, so always trust it
 # (the session home has no trustedFolders.json, which would otherwise leave it untrusted).

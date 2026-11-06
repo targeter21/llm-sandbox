@@ -21,6 +21,8 @@ fedora:latest
 
 - `bob-sandbox`, `claude-sandbox`, `gemini-sandbox` – launchers. Each creates a worktree of the current git
   repository on a temporary branch, starts the matching container, and on exit offers to merge the result.
+- `review-pr <pr-number> <bob|gemini|claude>` – checks out a GitHub PR with `gh` and starts the chosen launcher
+  with a prompt to review the branch.
 - `common-sandbox` – shared engine (worktrees, container flags, cleanup). The launchers source it; it can also be
   run directly for maintenance: `common-sandbox --prune` or `common-sandbox --clean`.
 - A systemd **user** service runs at startup, calls `common-sandbox --prune` and rebuilds all images via `just`.
@@ -51,6 +53,7 @@ install.sh  installer
 ```bash
 ./install.sh              # install files, symlinks and the systemd user service
 ./install.sh --no-service # skip the systemd service
+./install.sh --no-agent-config # don't copy rules/skills into ~/.bob, ~/.claude, ~/.gemini
 ./install.sh --uninstall  # remove everything the installer created
 ```
 
@@ -111,8 +114,10 @@ common-sandbox --clean   # wipe all sandbox state and worktrees
 
 ### Default rules and skills
 
-Provided in [`rules/`](rules/) and [`skills/`](skills/) and copied by `install.sh` into each agent's config
-directory:
+Provided in [`rules/`](rules/) and [`skills/`](skills/). `install.sh` copies them to the install directory, and
+every sandbox session is seeded from there; the agent's own config directory (e.g. `~/.claude`) is layered on top,
+so a same-named file there wins. Unless you pass `--no-agent-config`, `install.sh` also copies them into each
+agent's config directory so host-side runs of the tools use them:
 
 | Path | Purpose |
 |---|---|
@@ -214,8 +219,10 @@ into `CLAUDE.md` / `GEMINI.md` inside the session home on each launch (see `comp
 
 Notes:
 
-- `install.sh` still writes to the host: it copies `rules/` and `skills/` into `~/.bob`, `~/.claude` and
-  `~/.gemini`, so host-side runs of those tools pick them up too. The launchers never write to those directories.
+- By default `install.sh` also writes to the host: it copies `rules/` and `skills/` into `~/.bob`, `~/.claude` and
+  `~/.gemini`, so host-side runs of those tools pick them up too. Use `--no-agent-config` to leave those directories
+  alone; sandboxes still get the rules and skills from the install directory. The launchers never write to those
+  directories.
 - Re-running `install.sh` overwrites files with the same name; other files you keep in those directories are
   left alone. `--uninstall` removes only the rules and skills that this repo provides.
 - If you prefer to maintain a single rules directory yourself, you can replace `~/.claude/rules` or

@@ -31,7 +31,10 @@ BOB_CONFIG_DIR="$HOME/.bob"
 init_worktree_environment "bob"
 
 # Seed the session home (/root) with copies of the host config. The agent works
-# on the copies; the host's ~/.bob is never mounted.
+# on the copies; the host's ~/.bob is never mounted. The rules/skills shipped
+# with llm-sandbox go in first; the host's own (if any) are layered on top.
+seed_shipped rules "$SANDBOX_HOME/.bob/rules"
+seed_shipped skills "$SANDBOX_HOME/.bob/skills"
 seed_from_host "$BOB_CONFIG_DIR" "$SANDBOX_HOME/.bob" rules skills
 seed_from_host "$BOB_SETTINGS_DIR" "$SANDBOX_HOME/.bob/settings" settings.json
 # The API key/token file is synced back to the host on exit, so a login (or token

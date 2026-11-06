@@ -17,12 +17,15 @@ mkdir -p "$SHARED_GCLOUD_DIR"
 init_worktree_environment "claude"
 
 # Seed the session home (/root) with copies of the host config. The agent works
-# on the copies; the host's ~/.claude is never mounted.
+# on the copies; the host's ~/.claude is never mounted. The skills shipped with
+# llm-sandbox go in first; the host's own (if any) are layered on top.
+seed_shipped skills "$SANDBOX_HOME/.claude/skills"
 seed_from_host "$CLAUDE_CONFIG_DIR" "$SANDBOX_HOME/.claude" settings.json skills CLAUDE.md
 seed_from_host "$HOME" "$SANDBOX_HOME" .claude.json
 
-# Rules (if any) are compiled into the session's CLAUDE.md, replacing the copied one.
-compile_rules "$CLAUDE_RULES_DIR" "$SANDBOX_HOME/.claude/CLAUDE.md"
+# Rules (shipped, then the host's, which win on a name clash) are compiled into
+# the session's CLAUDE.md, replacing the copied one.
+compile_rules "$SANDBOX_HOME/.claude/CLAUDE.md" "$SHIPPED_RULES_DIR" "$CLAUDE_RULES_DIR"
 
 # --- Build Tool-Specific Podman Options ---
 # Auth is Vertex AI via gcloud ADC: the shared gcloud cache below persists the
