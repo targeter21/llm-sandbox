@@ -29,7 +29,8 @@ fedora:latest
 - `sandbox-attach [<session-branch> | -b <branch>] [command...]` – opens a shell (or runs a command) in `/workspace`
   of a running sandbox container. With a session branch it joins that sandbox; with `-b` it finds the sandboxes that
   were started from `<branch>` (e.g. a PR or issue branch) and joins the only match, or lets you pick with `fzf`
-  (numbered menu if `fzf` is missing) when there are several. With no arguments it lists running sandboxes.
+  (numbered menu if `fzf` is missing) when there are several. With no arguments (or without a branch), it matches all
+  running sandboxes and attaches directly if there is only one, or opens the interactive picker if there are several.
   Containers are labelled `llm-sandbox.branch` (session branch) and `llm-sandbox.base-branch` at launch.
 - `common-sandbox` – shared engine (worktrees, container flags, cleanup). The launchers source it; it can also be
   run directly for maintenance: `common-sandbox --prune` or `common-sandbox --clean`.
