@@ -26,6 +26,11 @@ fedora:latest
 - `fix-issue <issue-number> <bob|gemini|claude>` – reads the GitHub issue title with `gh`, creates and checks out a
   branch named `<issue-number>_<short_words_from_title>`, and starts the chosen launcher with a prompt to fix the
   issue using the `fix-github` skill.
+- `sandbox-attach [<session-branch> | -b <branch>] [command...]` – opens a shell (or runs a command) in `/workspace`
+  of a running sandbox container. With a session branch it joins that sandbox; with `-b` it finds the sandboxes that
+  were started from `<branch>` (e.g. a PR or issue branch) and joins the only match, or lets you pick with `fzf`
+  (numbered menu if `fzf` is missing) when there are several. With no arguments it lists running sandboxes.
+  Containers are labelled `llm-sandbox.branch` (session branch) and `llm-sandbox.base-branch` at launch.
 - `common-sandbox` – shared engine (worktrees, container flags, cleanup). The launchers source it; it can also be
   run directly for maintenance: `common-sandbox --prune` or `common-sandbox --clean`.
 - A systemd **user** service runs at startup, calls `common-sandbox --prune` and rebuilds all images via `just`.

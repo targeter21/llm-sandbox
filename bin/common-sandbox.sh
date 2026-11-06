@@ -362,6 +362,8 @@ run_agent_container() {
     local base_flags=(
         --rm -it
         --name "$CONTAINER_NAME"
+        --label "llm-sandbox.branch=$TEMP_BRANCH"
+        --label "llm-sandbox.base-branch=$CURRENT_BRANCH"
         --network host
         -e TERM="${TERM:-xterm-256color}"
         -e COLORTERM="${COLORTERM:-truecolor}"
