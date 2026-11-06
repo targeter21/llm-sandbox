@@ -263,10 +263,10 @@ _cleanup_and_merge_prompt() {
         git -C "$MAIN_REPO_DIR" log --oneline "${INITIAL_COMMIT}..${SESSION_COMMIT}"
         echo ""
 
-        read -r -p "👉 Merge changes back into '$CURRENT_BRANCH'? [y: merge / k: keep branch / n: discard]: " ACTION </dev/tty
+        read -r -p "👉 Merge changes back into '$CURRENT_BRANCH'? [Y: merge (default) / k: keep branch / n: discard]: " ACTION </dev/tty
 
         case "$ACTION" in
-            [yY][eE][sS]|[yY])
+            ""|[yY][eE][sS]|[yY])
                 echo "🔀 Merging $TEMP_BRANCH into $CURRENT_BRANCH..."
                 if git -C "$MAIN_REPO_DIR" merge --no-edit "$TEMP_BRANCH"; then
                     echo "✅ Successfully merged!"
