@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# 1. Validate argument count
+if [[ $# -ne 2 ]]; then
+    echo "Error: Exactly 2 arguments required." >&2
+    echo "Usage: $0 <pr-number> <bob|gemini|claude>" >&2
+    exit 1
+fi
+
+PR_NUM="$1"
+REVIEWER="$2"
+
+# 2. Validate PR number is numeric
+if ! [[ "$PR_NUM" =~ ^[0-9]+$ ]]; then
+    echo "Error: PR number must be a positive integer. Received: '$PR_NUM'" >&2
+    exit 1
+fi
+
+# 3. Validate reviewer value
+case "$REVIEWER" in
+    bob|gemini|claude)
+        ;;
+    *)
+        echo "Error: Invalid reviewer '$REVIEWER'. Allowed options: bob, gemini, claude" >&2
+        exit 1
+        ;;
+esac
+
+# 4. Check for gh CLI availability
+if ! command -v gh &>/dev/null; then
+    echo "Error: GitHub CLI ('gh') is not installed or not in PATH." >&2
+    exit 1
+fi
+
+# 5. Check PR existence
+echo "Checking existence of PR #${PR_NUM}..."
+if ! gh pr view "$PR_NUM" >/dev/null 2>&1; then
+    echo "Error: Pull Request #${PR_NUM} was not found or is inaccessible." >&2
+    exit 1
+fi
+
+# 6. Checkout PR branch
+echo "Checking out PR #${PR_NUM}..."
+gh pr checkout "$PR_NUM"
+
+# 7. Check if reviewer sandbox executable exists
+EXECUTABLE="${REVIEWER}-sandbox"
+if ! command -v "$EXECUTABLE" &>/dev/null; then
+    echo "Error: Executable '$EXECUTABLE' not found in PATH." >&2
+    exit 1
+fi
+
+# 8. Run the reviewer command
+PROMPT="Please only review the current branch. The commits to check are the new ones not on a remote repository."
+echo "Executing: $EXECUTABLE \"$PROMPT\""
+"$EXECUTABLE" "$PROMPT"
