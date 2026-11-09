@@ -296,6 +296,9 @@ init_resume_environment() {
 
     if [ -f "$SANDBOX_HOME/.session-info" ]; then
         SESSION_CREATED_AT="$(sed -n 's/^CREATED_AT=//p' "$SANDBOX_HOME/.session-info" | head -n 1)"
+        # The session's own base branch must survive a resume: CURRENT_BRANCH is
+        # just whatever is checked out now, and only applies to this resumed run.
+        SESSION_BASE_BRANCH="$(sed -n 's/^BASE_BRANCH=//p' "$SANDBOX_HOME/.session-info" | head -n 1)"
     fi
     [ -n "${SESSION_CREATED_AT:-}" ] || SESSION_CREATED_AT="$(date +'%Y-%m-%d %H:%M:%S')"
 
@@ -322,7 +325,7 @@ SESSION_ID=${SESSION_ID:-}
 CONTAINER_NAME=${CONTAINER_NAME:-}
 REPO_DIR=${MAIN_REPO_DIR:-}
 REPO_NAME=$(basename "${MAIN_REPO_DIR:-unknown}")
-BASE_BRANCH=${CURRENT_BRANCH:-}
+BASE_BRANCH=${SESSION_BASE_BRANCH:-${CURRENT_BRANCH:-}}
 INITIAL_COMMIT=${INITIAL_COMMIT:-}
 CREATED_AT=${SESSION_CREATED_AT:-$(date +'%Y-%m-%d %H:%M:%S')}
 UPDATED_AT=$(date +'%Y-%m-%d %H:%M:%S')
