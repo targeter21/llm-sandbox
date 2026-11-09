@@ -5,7 +5,8 @@
 #     The launchers seed every sandbox session with the rules/ and skills/ found
 #     there; the agent config directories below are layered on top.
 #   - symlinks the launcher scripts (bob-sandbox, claude-sandbox, gemini-sandbox,
-#     review-pr, fix-issue, sandbox-attach, sandbox-resume, common-sandbox) into $BIN_DIR
+#     review-pr, fix-issue, sandbox-attach, sandbox-resume, sandbox-session,
+#     common-sandbox) into $BIN_DIR
 #   - unless --no-agent-config is given, also copies the shared rules/ and skills/
 #     into the config directory of each agent ($BOB_DIR, $CLAUDE_DIR, $GEMINI_DIR)
 #     so host-side runs of those tools pick them up. Files with the same name are
@@ -44,6 +45,7 @@ LINKS=(
     "common-sandbox:common-sandbox.sh"
     "sandbox-attach:sandbox-attach"
     "sandbox-resume:sandbox-resume"
+    "sandbox-session:sandbox-session"
 )
 
 # Agent config directories that receive the shared rules/ and skills/

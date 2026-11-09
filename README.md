@@ -36,6 +36,13 @@ fedora:latest
   fresh on-demand worktree and mounts the preserved session history (`/root`). When invoked without a session ID, it
   opens an interactive `fzf` picker sorted by last operated date (most recent first) with session details and activity
   in the preview window.
+- `sandbox-session pack [-a] [-f] [-o <file.zip>] [<session-id>]` / `sandbox-session unpack [-f] <file.zip>` – moves a
+  session to another machine. `pack` picks a session the same way `sandbox-resume` does (`fzf` picker or session ID/prefix)
+  and zips **only its conversation history** (bob's `bob.db`, claude's `projects/` and `history.jsonl`, gemini's `tmp/` chats),
+  plus `.session-info` and the Logseq run logs. Settings, login files, caches and shell history are never included.
+  Copy the zip over and run `unpack`: it restores the history and re-seeds rules, skills and settings from the local machine,
+  as a fresh launch would. Then run `sandbox-resume` from inside your checkout of the same repository (the agent logs in
+  with the local credentials). The history can still contain secrets the agent saw, so keep the archive private.
 - `common-sandbox` – shared engine (worktrees, container flags, cleanup). The launchers source it; it can also be
   run directly for maintenance: `common-sandbox --prune` or `common-sandbox --clean`.
 - A systemd **user** service runs at startup, calls `common-sandbox --prune` and rebuilds all images via `just`.
