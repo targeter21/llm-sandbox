@@ -32,6 +32,10 @@ fedora:latest
   (numbered menu if `fzf` is missing) when there are several. With no arguments (or without a branch), it matches all
   running sandboxes and attaches directly if there is only one, or opens the interactive picker if there are several.
   Containers are labelled `llm-sandbox.branch` (session branch) and `llm-sandbox.base-branch` at launch.
+- `sandbox-resume [-a | --all] [-b <branch>] [<session-id>] [command...]` – resumes a previously closed session with a
+  fresh on-demand worktree and mounts the preserved session history (`/root`). When invoked without a session ID, it
+  opens an interactive `fzf` picker sorted by last operated date (most recent first) with session details and activity
+  in the preview window.
 - `common-sandbox` – shared engine (worktrees, container flags, cleanup). The launchers source it; it can also be
   run directly for maintenance: `common-sandbox --prune` or `common-sandbox --clean`.
 - A systemd **user** service runs at startup, calls `common-sandbox --prune` and rebuilds all images via `just`.

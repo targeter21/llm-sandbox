@@ -254,14 +254,81 @@ init_worktree_environment() {
     SANDBOX_HOME="$BASE_SANDBOX_DIR/sessions/${agent_prefix}_${SESSION_ID}"
     CONTAINER_NAME="${agent_prefix}_${SESSION_ID}"
     SESSION_LOG_DIR="$LOGSEQ_LOG_DIR/$CONTAINER_NAME"
+    SESSION_CREATED_AT="$(date +'%Y-%m-%d %H:%M:%S')"
+    AGENT_PREFIX="$agent_prefix"
 
     mkdir -p "$SANDBOX_HOME" "$SHARED_M2_DIR" "$WORKTREES_BASE_DIR"
+    _save_session_metadata "active"
 
     echo "🌿 Creating worktree at $WORKTREE_DIR based on '$CURRENT_BRANCH'..."
     git worktree add -b "$TEMP_BRANCH" "$WORKTREE_DIR" HEAD
 
     # Register exit and interrupt hook
     trap _cleanup_and_merge_prompt EXIT INT TERM
+}
+
+# --- 3b. Worktree Initialization for Resumed Sessions ---
+init_resume_environment() {
+    local session_home="$1"
+    local agent_prefix="$2"
+
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "ERROR: Current directory is not inside a Git repository." >&2
+        exit 1
+    fi
+
+    MAIN_REPO_DIR="$(git rev-parse --show-toplevel)"
+    COMMON_GIT_DIR="$(git rev-parse --git-common-dir)"
+    COMMON_GIT_DIR="$(cd "$COMMON_GIT_DIR" && pwd)"
+
+    CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    INITIAL_COMMIT="$(git rev-parse HEAD)"
+
+    AGENT_PREFIX="$agent_prefix"
+    SESSION_ID="${$}_$(date +%s)"
+    WORKTREE_NAME="${agent_prefix}_resume_${CURRENT_BRANCH//\//_}_${SESSION_ID}"
+    WORKTREE_DIR="$WORKTREES_BASE_DIR/$WORKTREE_NAME"
+    TEMP_BRANCH="${agent_prefix}-resume/${CURRENT_BRANCH//\//-}/${SESSION_ID}"
+
+    SANDBOX_HOME="$session_home"
+    CONTAINER_NAME="${agent_prefix}_resume_${SESSION_ID}"
+    SESSION_LOG_DIR="$LOGSEQ_LOG_DIR/$CONTAINER_NAME"
+
+    if [ -f "$SANDBOX_HOME/.session-info" ]; then
+        SESSION_CREATED_AT="$(sed -n 's/^CREATED_AT=//p' "$SANDBOX_HOME/.session-info" | head -n 1)"
+    fi
+    [ -n "${SESSION_CREATED_AT:-}" ] || SESSION_CREATED_AT="$(date +'%Y-%m-%d %H:%M:%S')"
+
+    mkdir -p "$SANDBOX_HOME" "$SHARED_M2_DIR" "$WORKTREES_BASE_DIR"
+
+    echo "🌿 Creating worktree at $WORKTREE_DIR based on '$CURRENT_BRANCH' for resume..."
+    git worktree add -b "$TEMP_BRANCH" "$WORKTREE_DIR" HEAD
+
+    _save_session_metadata "resumed"
+
+    # Register exit and interrupt hook
+    trap _cleanup_and_merge_prompt EXIT INT TERM
+}
+
+# _save_session_metadata <status>
+# Saves or updates .session-info inside $SANDBOX_HOME for sandbox-resume discovery.
+_save_session_metadata() {
+    local status="${1:-active}"
+    [ -n "${SANDBOX_HOME:-}" ] || return 0
+    mkdir -p "$SANDBOX_HOME"
+    cat > "$SANDBOX_HOME/.session-info" <<EOF
+AGENT=${AGENT_PREFIX:-${agent_prefix:-agent}}
+SESSION_ID=${SESSION_ID:-}
+CONTAINER_NAME=${CONTAINER_NAME:-}
+REPO_DIR=${MAIN_REPO_DIR:-}
+REPO_NAME=$(basename "${MAIN_REPO_DIR:-unknown}")
+BASE_BRANCH=${CURRENT_BRANCH:-}
+INITIAL_COMMIT=${INITIAL_COMMIT:-}
+CREATED_AT=${SESSION_CREATED_AT:-$(date +'%Y-%m-%d %H:%M:%S')}
+UPDATED_AT=$(date +'%Y-%m-%d %H:%M:%S')
+STATUS=$status
+${INITIAL_PROMPT:+INITIAL_PROMPT=${INITIAL_PROMPT//$'\n'/ }}
+EOF
 }
 
 # --- 4. Interactive Exit & Merge Trap Handler ---
@@ -335,7 +402,7 @@ _cleanup_and_merge_prompt() {
         git -C "$MAIN_REPO_DIR" branch -D "$TEMP_BRANCH" 2>/dev/null || true
     fi
 
-    rm -rf "$SANDBOX_HOME"
+    _save_session_metadata "closed"
     echo "✨ Session cleanup finished."
 }
 
