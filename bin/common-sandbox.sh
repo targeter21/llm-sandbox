@@ -360,16 +360,38 @@ _cleanup_and_merge_prompt() {
 
         case "$ACTION" in
             ""|[yY][eE][sS]|[yY])
-                # 'git merge' merges into whatever is checked out now; make sure that
-                # is still the branch the session started from.
-                local now_branch
+                # 'git merge' merges into whatever is checked out. If the main repo has
+                # moved to another branch, switch back to the original branch (only when
+                # there are no working changes), merge, then return to where it was.
+                local now_branch return_ref=""
                 now_branch="$(git -C "$MAIN_REPO_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)"
                 if [ "$now_branch" != "$CURRENT_BRANCH" ]; then
-                    echo "⚠️ '$MAIN_REPO_DIR' is now on '$now_branch', not '$CURRENT_BRANCH'. Not merging."
-                    echo "   Check out '$CURRENT_BRANCH' and run: git merge $TEMP_BRANCH"
-                    echo "📌 Branch preserved: $TEMP_BRANCH"
-                    keep_branch=true
-                else
+                    if [ -n "$(git -C "$MAIN_REPO_DIR" status --porcelain 2>/dev/null)" ]; then
+                        echo "⚠️ '$MAIN_REPO_DIR' is now on '$now_branch', not '$CURRENT_BRANCH', and has working changes. Not merging."
+                        echo "   Check out '$CURRENT_BRANCH' and run: git merge $TEMP_BRANCH"
+                        echo "📌 Branch preserved: $TEMP_BRANCH"
+                        keep_branch=true
+                        now_branch=""
+                    else
+                        # Detached HEAD reports "HEAD"; return to the commit in that case
+                        if [ "$now_branch" = "HEAD" ]; then
+                            return_ref="$(git -C "$MAIN_REPO_DIR" rev-parse HEAD)"
+                        else
+                            return_ref="$now_branch"
+                        fi
+                        echo "🔀 '$MAIN_REPO_DIR' is on '$now_branch'; temporarily checking out '$CURRENT_BRANCH'..."
+                        if ! git -C "$MAIN_REPO_DIR" checkout "$CURRENT_BRANCH"; then
+                            echo "⚠️ Could not check out '$CURRENT_BRANCH'. Not merging."
+                            echo "   Check out '$CURRENT_BRANCH' and run: git merge $TEMP_BRANCH"
+                            echo "📌 Branch preserved: $TEMP_BRANCH"
+                            keep_branch=true
+                            now_branch=""
+                            return_ref=""
+                        fi
+                    fi
+                fi
+
+                if [ -n "$now_branch" ]; then
                     echo "🔀 Merging $TEMP_BRANCH into $CURRENT_BRANCH..."
                     if git -C "$MAIN_REPO_DIR" merge --no-edit "$TEMP_BRANCH"; then
                         echo "✅ Successfully merged!"
@@ -377,6 +399,12 @@ _cleanup_and_merge_prompt() {
                         echo "⚠️ Merge conflict encountered! Aborted merge. Branch '$TEMP_BRANCH' kept."
                         git -C "$MAIN_REPO_DIR" merge --abort 2>/dev/null || true
                         keep_branch=true
+                    fi
+
+                    if [ -n "$return_ref" ]; then
+                        echo "↩️ Switching '$MAIN_REPO_DIR' back to '$now_branch'..."
+                        git -C "$MAIN_REPO_DIR" checkout "$return_ref" ||
+                            echo "⚠️ Could not switch back to '$now_branch'; '$MAIN_REPO_DIR' remains on '$CURRENT_BRANCH'."
                     fi
                 fi
                 ;;
