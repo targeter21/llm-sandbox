@@ -74,6 +74,6 @@ if ! command -v "$EXECUTABLE" &>/dev/null; then
 fi
 
 # 8. Run the reviewer command
-PROMPT="Please review the changes in pull request #${PR_NUM} on the current branch. You can query information from PR #${PR_NUM} itself. Also check existing comments on the PR to confirm if they are correct or not and if additional information should be provided there."
+PROMPT="Please review the changes in pull request #${PR_NUM} on the current branch. You can query information from PR #${PR_NUM} itself. Note the current branch is a worktree of this PR, so you don't need to fetch from git. Also check existing comments on the PR to confirm if they are correct or not and if additional information should be provided there."
 echo "Executing: $EXECUTABLE \"$PROMPT\""
 "$EXECUTABLE" "$PROMPT"
