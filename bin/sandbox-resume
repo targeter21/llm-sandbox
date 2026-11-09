@@ -373,7 +373,7 @@ case "$AGENT" in
         if [ "${#PASSED_CMD[@]}" -gt 0 ]; then
             BOB_INVOKE=("${PASSED_CMD[@]}")
         else
-            BOB_INVOKE=(bob chat --auto-approve --trust)
+            BOB_INVOKE=(bob chat --auto-approve --trust --resume latest)
         fi
 
         run_agent_container "bob-dev-sandbox:latest" "${TOOL_PODMAN_ARGS[@]}" -- "${BOB_INVOKE[@]}"

@@ -36,14 +36,35 @@ fi
 
 # 5. Check PR existence
 echo "Checking existence of PR #${PR_NUM}..."
-if ! gh pr view "$PR_NUM" >/dev/null 2>&1; then
+if ! BRANCH="$(gh pr view "$PR_NUM" --json headRefName -q .headRefName 2>/dev/null)" || [[ -z "$BRANCH" ]]; then
     echo "Error: Pull Request #${PR_NUM} was not found or is inaccessible." >&2
     exit 1
 fi
 
 # 6. Checkout PR branch
 echo "Checking out PR #${PR_NUM}..."
-gh pr checkout "$PR_NUM"
+if ! CHECKOUT_OUTPUT="$(gh pr checkout "$PR_NUM" 2>&1)"; then
+    echo "$CHECKOUT_OUTPUT" >&2
+    if echo "$CHECKOUT_OUTPUT" | grep -qiE 'fast[- ]?forward'; then
+        read -r -p "Branch '${BRANCH}' could not be fast-forwarded. Delete branch and check it out again? [y/N] " CONFIRM
+        if [[ "$CONFIRM" =~ ^[yY]([eE][sS])?$ ]]; then
+            echo "Deleting branch '${BRANCH}' and checking it out again..."
+            CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || true)"
+            if [[ "$CURRENT_BRANCH" == "$BRANCH" ]]; then
+                git checkout -q --detach HEAD
+            fi
+            git branch -D "$BRANCH"
+            gh pr checkout "$PR_NUM"
+        else
+            echo "Checkout aborted." >&2
+            exit 1
+        fi
+    else
+        exit 1
+    fi
+else
+    [[ -n "$CHECKOUT_OUTPUT" ]] && echo "$CHECKOUT_OUTPUT"
+fi
 
 # 7. Check if reviewer sandbox executable exists
 EXECUTABLE="${REVIEWER}-sandbox"
